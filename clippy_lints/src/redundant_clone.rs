@@ -252,13 +252,13 @@ fn find_stmt_assigns_to<'a, 'tcx: 'a>(
     stmts
         .rev()
         .find_map(|stmt| {
-            if let mir::StatementKind::Assign(
+            if let mir::StatementKind::Assign(box(
                 mir::Place {
                     base: mir::PlaceBase::Local(local),
                     ..
                 },
                 v,
-            ) = &stmt.kind
+            )) = &stmt.kind
             {
                 if *local == to {
                     return Some(v);
@@ -269,10 +269,10 @@ fn find_stmt_assigns_to<'a, 'tcx: 'a>(
         })
         .and_then(|v| {
             if by_ref {
-                if let mir::Rvalue::Ref(_, _, ref place) = **v {
+                if let mir::Rvalue::Ref(_, _, ref place) = *v {
                     return base_local_and_movability(cx, mir, place);
                 }
-            } else if let mir::Rvalue::Use(mir::Operand::Copy(ref place)) = **v {
+            } else if let mir::Rvalue::Use(mir::Operand::Copy(ref place)) = *v {
                 return base_local_and_movability(cx, mir, place);
             }
             None
@@ -291,7 +291,6 @@ fn base_local_and_movability<'tcx>(
     use rustc::mir::Place;
     use rustc::mir::PlaceBase;
     use rustc::mir::PlaceRef;
-    use rustc::mir::Projection;
 
     // Dereference. You cannot move things out from a borrowed value.
     let mut deref = false;
@@ -300,15 +299,15 @@ fn base_local_and_movability<'tcx>(
 
     let PlaceRef {
         base: place_base,
-        mut projection,
+        projection,
     } = place.as_ref();
     if let PlaceBase::Local(local) = place_base {
-        while let Some(box Projection { base, elem }) = projection {
-            projection = base;
+        for (i, elem) in projection.iter().enumerate().rev() {
+            let proj_base = &projection[..i];
             deref = matches!(elem, mir::ProjectionElem::Deref);
             field = !field
                 && matches!(elem, mir::ProjectionElem::Field(..))
-                && has_drop(cx, Place::ty_from(place_base, projection, &mir.local_decls, cx.tcx).ty);
+                && has_drop(cx, Place::ty_from(place_base, proj_base, &mir.local_decls, cx.tcx).ty);
         }
 
         Some((*local, deref || field))
